@@ -96,4 +96,47 @@ describe('Test Supabase Node', () => {
 			},
 		);
 	});
+
+	// [ria] test different HTTP methods to check if correct headers are constructed from that
+
+	it('should make supabase API request with correct schema headers', async () => {
+		const mockExecuteFunctions = {
+			getCredentials: jest.fn().mockResolvedValue({
+				host: 'https://test.supabase.co',
+				serviceRole: 'test-key',
+			}),
+			getNode: jest.fn().mockReturnValue({
+				parameters: {
+					schema: 'public',
+				},
+			}),
+			helpers: {
+				requestWithAuthentication: jest.fn().mockResolvedValue({ data: 'test' }),
+			},
+		};
+
+		const result = await supabaseApiRequest.call(
+			mockExecuteFunctions,
+			'POST',
+			'/test',
+			{ data: 'test' },
+			{ query: 'param' },
+		);
+
+		expect(mockExecuteFunctions.helpers.requestWithAuthentication).toHaveBeenCalledWith(
+			'supabaseApi',
+			{
+				headers: {
+					Prefer: 'return=representation',
+					'Content-Profile': 'public',
+				},
+				method: 'POST',
+				qs: { query: 'param' },
+				body: { data: 'test' },
+				uri: 'https://test.supabase.co/rest/v1/test',
+				json: true,
+			},
+		);
+		expect(result).toEqual({ data: 'test' });
+	});
 });
