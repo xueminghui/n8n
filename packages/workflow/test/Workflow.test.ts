@@ -2044,4 +2044,245 @@ describe('Workflow', () => {
 			});
 		});
 	});
+
+	describe('getHighestNode', () => {
+		let nodeTypes: INodeTypes;
+
+		beforeEach(() => {
+			nodeTypes = Helpers.NodeTypes();
+		});
+
+		const createNode = (name: string, disabled = false) =>
+			({
+				name,
+				type: 'test.set',
+				typeVersion: 1,
+				disabled,
+				position: [0, 0],
+				parameters: {},
+			}) as INode;
+
+		test('should return node name if node is not disabled', () => {
+			const node = createNode('Node1');
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node],
+				connections: {},
+				active: false,
+				nodeTypes,
+			});
+
+			const result = workflow.getHighestNode(node.name);
+			expect(result).toEqual([node.name]);
+		});
+
+		test('should return empty array if node is disabled', () => {
+			const node = createNode('Node1', true);
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node],
+				connections: {},
+				active: false,
+				nodeTypes,
+			});
+
+			const result = workflow.getHighestNode(node.name);
+			expect(result).toEqual([]);
+		});
+
+		test('should return highest nodes when multiple parent nodes exist', () => {
+			const node1 = createNode('Node1');
+			const node2 = createNode('Node2');
+			const node3 = createNode('Node3');
+			const targetNode = createNode('TargetNode');
+
+			const connections = {
+				Node1: {
+					main: [[{ node: 'TargetNode', type: NodeConnectionType.Main, index: 0 }]],
+				},
+				Node2: {
+					main: [[{ node: 'TargetNode', type: NodeConnectionType.Main, index: 0 }]],
+				},
+			};
+
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node1, node2, node3, targetNode],
+				connections,
+				active: false,
+				nodeTypes,
+			});
+
+			const result = workflow.getHighestNode(targetNode.name);
+			expect(result).toEqual([node1.name, node2.name]);
+		});
+
+		test('should ignore disabled parent nodes', () => {
+			const node1 = createNode('Node1', true);
+			const node2 = createNode('Node2');
+			const targetNode = createNode('TargetNode');
+
+			const connections = {
+				Node1: {
+					main: [[{ node: 'TargetNode', type: NodeConnectionType.Main, index: 0 }]],
+				},
+				Node2: {
+					main: [[{ node: 'TargetNode', type: NodeConnectionType.Main, index: 0 }]],
+				},
+			};
+
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node1, node2, targetNode],
+				connections,
+				active: false,
+				nodeTypes,
+			});
+
+			const result = workflow.getHighestNode(targetNode.name);
+			expect(result).toEqual([node2.name]);
+		});
+
+		test('should handle nested connections', () => {
+			const node1 = createNode('Node1');
+			const node2 = createNode('Node2');
+			const node3 = createNode('Node3');
+			const targetNode = createNode('TargetNode');
+
+			const connections = {
+				Node3: {
+					main: [
+						[{ node: 'Node1', type: NodeConnectionType.Main, index: 0 }],
+						[{ node: 'Node2', type: NodeConnectionType.Main, index: 0 }],
+					],
+				},
+				TargetNode: {
+					main: [[{ node: 'Node3', type: NodeConnectionType.Main, index: 0 }]],
+				},
+			};
+
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node1, node2, node3, targetNode],
+				connections,
+				active: false,
+				nodeTypes,
+			});
+
+			const result = workflow.getHighestNode(targetNode.name);
+			expect(result).toEqual([targetNode.name]);
+		});
+
+		test('should respect specified connection type', () => {
+			const node1 = createNode('Node1');
+			const node2 = createNode('Node2');
+			const targetNode = createNode('TargetNode');
+
+			const connections = {
+				Node1: {
+					main: [[{ node: 'TargetNode', type: NodeConnectionType.Main, index: 0 }]],
+				},
+			};
+
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node1, node2, targetNode],
+				connections,
+				active: false,
+				nodeTypes,
+			});
+
+			const resultMain = workflow.getHighestNode(targetNode.name, NodeConnectionType.Main);
+
+			expect(resultMain).toEqual([node1.name]);
+		});
+
+		test('should handle specified connection index', () => {
+			const node1 = createNode('Node1');
+			const node2 = createNode('Node2');
+			const targetNode = createNode('TargetNode');
+
+			const connections = {
+				Node1: {
+					main: [[{ node: 'TargetNode', type: NodeConnectionType.Main, index: 0 }]],
+				},
+				Node2: {
+					main: [[], [{ node: 'TargetNode', type: NodeConnectionType.Main, index: 1 }]],
+				},
+			};
+
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node1, node2, targetNode],
+				connections,
+				active: false,
+				nodeTypes,
+			});
+
+			const resultFirstIndex = workflow.getHighestNode(targetNode.name, NodeConnectionType.Main, 0);
+			const resultSecondIndex = workflow.getHighestNode(
+				targetNode.name,
+				NodeConnectionType.Main,
+				1,
+			);
+
+			expect(resultFirstIndex).toEqual([node1.name]);
+			expect(resultSecondIndex).toEqual([node2.name]);
+		});
+
+		test('should prevent infinite loops with cyclic connections', () => {
+			const node1 = createNode('Node1');
+			const node2 = createNode('Node2');
+			const targetNode = createNode('TargetNode');
+
+			const connections = {
+				Node1: {
+					main: [[{ node: 'Node2', type: NodeConnectionType.Main, index: 0 }]],
+				},
+				Node2: {
+					main: [[{ node: 'Node1', type: NodeConnectionType.Main, index: 0 }]],
+				},
+				TargetNode: {
+					main: [[{ node: 'Node1', type: NodeConnectionType.Main, index: 0 }]],
+				},
+			};
+
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node1, node2, targetNode],
+				connections,
+				active: false,
+				nodeTypes,
+			});
+
+			const result = workflow.getHighestNode(targetNode.name);
+			expect(result).toEqual([targetNode.name]);
+		});
+
+		test('should handle connections to nodes not defined in workflow', () => {
+			const node1 = createNode('Node1');
+			const targetNode = createNode('TargetNode');
+
+			const connections = {
+				Node1: {
+					main: [[{ node: 'NonExistentNode', type: NodeConnectionType.Main, index: 0 }]],
+				},
+				TargetNode: {
+					main: [[{ node: 'NonExistentNode', type: NodeConnectionType.Main, index: 0 }]],
+				},
+			};
+
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [node1, targetNode],
+				connections,
+				active: false,
+				nodeTypes,
+			});
+
+			const result = workflow.getHighestNode(targetNode.name);
+
+			expect(result).toEqual([targetNode.name]);
+		});
+	});
 });
